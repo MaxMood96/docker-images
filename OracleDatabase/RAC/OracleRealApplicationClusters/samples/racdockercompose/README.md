@@ -14,15 +14,17 @@ Once you have built your Oracle RAC container image, you can create a Oracle RAC
     - [Section 4.1: Add Additional Node in Existing Oracle RAC Cluster with Block Devices](#section-41-add-additional-node-in-existing-oracle-rac-cluster-with-block-devices)
     - [Section 4.2: Add Additional Node in Existing Oracle RAC Cluster with NFS Volume](#section-42-add-additional-node-in-existing-oracle-rac-cluster-with-nfs-volume)
   - [Section 5: Connect to the RAC container](#connect-to-the-rac-container)
+  - [Cleanup RAC Environment](#cleanup-rac-environment)
   - [Copyright](#copyright)
 
 ## Section 1 : Prerequisites for RAC Database on Docker with Docker Compose
 
-**IMPORTANT :** You must execute all the steps specified in this section (customized for your environment) before you proceed to the next section. Docker and Docker Compose is not supported with OL8. You need OL7.9 with UEK R5 or R6. This guide and example is mainly for development and testing purposes only.
+**IMPORTANT :** You must execute all the steps specified in this section (customized for your environment) before you proceed to the next section. Docker and Docker Compose is not supported with OL8. You need OL7.9 with UEK R5 or above. This guide and example is mainly for development and testing purposes only.
 
 - It is assumed that before proceeding further you have executed the pre-requisites from [Section 1 : Prerequisites for running Oracle RAC in containers](../../../OracleRealApplicationClusters/README.md)  and [Section 4.1 : Prerequisites for Running Oracle RAC on Docker](../../../OracleRealApplicationClusters/README.md) for Single Docker Host Machine .
 - Create DNS docker image, if you are planing to use DNS container for testing. Please refer [DNS Container README.MD](../../../OracleDNSServer/README.md). You can skip this step if you are planing to use **your own DNS Server**.
 - Create Oracle Connection Manager Docker image.Please refer [RAC Oracle Connection Manager README.MD](../../../OracleConnectionManager/README.md) for details.
+- Create Storage Server Docker image, if you are planning to use NFS Storage Devices provided in this guide.Please refer [How to build NFS Storage Container Image](../../../OracleRACStorageServer/README.md) for details.
 
 - If you have not built the Oracle RAC container image, execute the steps in [Section 2: Building Oracle RAC Database Container Images](../../../OracleRealApplicationClusters/README.md) based on your environment.
 
@@ -250,6 +252,15 @@ mkdir -p /docker_volumes/asm_vol/$ORACLE_DBNAME
 rm -rf /docker_volumes/asm_vol/$ORACLE_DBNAME/asm_disk0*
 ```
 
+```bash
+#-----Create docker volume---
+docker volume create --driver local \
+  --opt type=nfs \
+  --opt o=addr=192.168.17.80,rw,bg,hard,tcp,vers=3,timeo=600,rsize=32768,wsize=32768,actimeo=0 \
+  --opt device=192.168.17.80:/oradata \
+  racstorage
+```
+
 After copying compose file, you can bring up DNS Container, Storage Container, RAC Container and CMAN container by following below commands-
 ```bash
 #---------Bring up DNS------------
@@ -277,15 +288,6 @@ racnode-storage  | ####################################################
 racnode-storage  |  NFS Server is up and running                      
 racnode-storage  |  Create NFS volume for /oradata/        
 racnode-storage  | ####################################################
-```
-
-```bash
-#-----Create docker volume---
-docker volume create --driver local \
-  --opt type=nfs \
-  --opt o=addr=192.168.17.80,rw,bg,hard,tcp,vers=3,timeo=600,rsize=32768,wsize=32768,actimeo=0 \
-  --opt device=192.168.17.80:/oradata \
-  racstorage
 ```
 
 ```bash
@@ -450,7 +452,39 @@ docker exec -i -t racnoded1 /bin/bash
 
 If the install fails for any reason, log in to container using the above command and check `/tmp/orod.log`. You can also review the Grid Infrastructure logs located at `$GRID_BASE/diag/crs` and check for failure logs. If the failure occurred during the database creation then check the database logs.
 
+## Cleanup RAC Environment
+Below commands can be executed to cleanup above RAC Environment -
+
+### Cleanup RAC based on Block Devices
+```bash
+#----Cleanup RAC Containers-----
+docker rm -f racnoded1 racnoded2 rac-dnsserver racnodedc1-cman 
+#----Cleanup Disks--------------
+dd if=/dev/zero of=/dev/oracleoci/oraclevde  bs=8k count=10000 status=progress && dd if=/dev/zero of=/dev/oracleoci/oraclevdd  bs=8k count=10000 status=progress
+#----Cleanup Files and Folders--
+rm -rf /opt/containers /opt/.secrets
+#----Cleanup Docker Networks--
+docker network rm -f rac_pub1_nw rac_pzriv1_nw
+#----Cleanup Docker Images--
+docker rmi -f oracle/rac-dnsserver:latest oracle/database-rac:19.3.0 oracle/client-cman:19.3.0
+```
+
+### Cleanup RAC based on NFS Storage Devices
+```bash
+#----Cleanup RAC Containers-----
+docker rm -f racnoded1 racnoded2 rac-dnsserver racnode-storage racnodedc1-cman 
+#----Cleanup Files and Folders--
+rm -rf /opt/containers /opt/.secrets
+export ORACLE_DBNAME=ORCLCDB
+rm -rf /docker_volumes/asm_vol/$ORACLE_DBNAME/asm_disk0*
+#----Cleanup Docker Volumes---
+docker volume -f racstorage
+#----Cleanup Docker Networks--
+docker network rm -f rac_pub1_nw rac_pzriv1_nw
+#----Cleanup Docker Images--
+docker rmi -f oracle/rac-dnsserver:latest oracle/rac-storage-server:19.3.0 oracle/database-rac:19.3.0 oracle/client-cman:19.3.0
+```
 
 ## Copyright
 
-Copyright (c) 2014-2024 Oracle and/or its affiliates. All rights reserved.
+Copyright (c) 2014-2025 Oracle and/or its affiliates. All rights reserved.
